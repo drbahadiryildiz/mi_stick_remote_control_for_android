@@ -28,7 +28,7 @@ android {
         }
     }
 
-    // Java/Kotlin 17
+    // Java/Kotlin hedefleri
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -48,16 +48,17 @@ android {
     }
 }
 
-/** <<< Çakışan jar’ları kesmek için küresel exclude’lar >>> */
+/**
+ * SLF4J/Log4j çakışmalarını engelle:
+ * bazı bağımlılıklar eski slf4j-jdk14 / slf4j-nop veya log4j-slf4j-impl getiriyor.
+ */
 configurations.all {
-    // Copilot’un raporladığı duplicate class hatalarını kesiyoruz
-    exclude(group = "commons-logging")               // commons-logging, commons-logging-api
-    exclude(group = "org.codehaus.plexus")           // plexus-* sınıfları
-    exclude(group = "org.apache.maven")              // maven-* sınıfları
+    exclude(group = "org.slf4j", module = "slf4j-jdk14")
+    exclude(group = "org.slf4j", module = "slf4j-nop")
+    exclude(group = "org.apache.logging.log4j")
 }
 
 dependencies {
-    // Compose BOM
     val composeBom = platform("androidx.compose:compose-bom:2024.06.00")
     implementation(composeBom)
     androidTestImplementation(composeBom)
@@ -70,18 +71,18 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 
-    // VIEW tabanlı Material bileşenleri (tema kaynaklarını sağlar: Theme.Material3.*)
-    implementation("com.google.android.material:material:1.12.0")
-
-    // mDNS keşfi
-    implementation("org.jmdns:jmdns:3.5.8")
-
-    // Android TV Remote protokolü (JitPack - commit SHA ile sabitlendi)
-    implementation("com.github.kunal52:AndroidTvRemote:3825a2c") {
-        // Güvenlik için transitive exclude’lar (bazı derlemelerde bu jar’lar gelebiliyor)
-        exclude(group = "commons-logging", module = "commons-logging")
-        exclude(group = "commons-logging", module = "commons-logging-api")
-        exclude(group = "org.codehaus.plexus")
-        exclude(group = "org.apache.maven")
+    // mDNS keşfi (JmDNS) — SLF4J/Log4j transitiflerini de dışla
+    implementation("org.jmdns:jmdns:3.5.8") {
+        exclude(group = "org.slf4j")
+        exclude(group = "org.apache.logging.log4j")
     }
+
+    // Android TV Remote protokolü (JitPack commit SHA ile sabit)
+    implementation("com.github.kunal52:AndroidTvRemote:3825a2c") {
+        exclude(group = "org.slf4j")
+        exclude(group = "org.apache.logging.log4j")
+    }
+
+    // Tek bağlayıcı: SLF4J loglarını Android Logcat'e yönlendir
+    implementation("org.slf4j:slf4j-android:1.7.36")
 }
