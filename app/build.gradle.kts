@@ -28,12 +28,23 @@ android {
         }
     }
 
+    // Java/Kotlin hedefi
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
+    // Jetpack Compose
     buildFeatures {
         compose = true
     }
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.14"
     }
+
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -54,9 +65,9 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 
-    // Multicast / mDNS discovery
+    // mDNS keşfi
     implementation("org.jmdns:jmdns:3.5.8")
 
-    // Open-source Android TV Remote Protocol v2 (pre-release)
-    implementation("com.github.kunal52:AndroidTvRemote:v0.0.1")
+    // Android TV Remote protokolü (JitPack: commit SHA ile sabitlendi)
+    implementation("com.github.kunal52:AndroidTvRemote:3825a2c")
 }
