@@ -7,13 +7,13 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <application
-    android:label="Mi Stick Remote"
-    android:icon="@mipmap/ic_launcher"
-    android:roundIcon="@mipmap/ic_launcher_round"
-    android:usesCleartextTraffic="false"
-    android:allowBackup="true"
-    android:supportsRtl="true"
-    android:theme="@style/Theme.MiStickRemote">
+        android:label="Mi Stick Remote"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:usesCleartextTraffic="false"
+        android:allowBackup="true"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.MiStickRemote">
         <activity
             android:name=".MainActivity"
             android:exported="true">
