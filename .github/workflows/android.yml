@@ -2,10 +2,18 @@ name: Android APK (Debug)
 
 on:
   workflow_dispatch:
+  push:
+    branches: [ main ]
+
+# Aynı branchtaki eşzamanlı koşular iptal olmasın
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
@@ -25,7 +33,7 @@ jobs:
           sdkmanager --install "platform-tools" "platforms;android-34" "build-tools;34.0.0"
           yes | sdkmanager --licenses
 
-      # Gradle Wrapper yoksa üret → 8.7'ye sabitle
+      # Gradle Wrapper yoksa üret (AGP 8.5 ↔ Gradle 8.7 uyumlu)
       - name: Ensure Gradle Wrapper (8.7)
         run: |
           if [ ! -f "./gradlew" ]; then
@@ -38,14 +46,16 @@ jobs:
           chmod +x ./gradlew
           ./gradlew --version
 
-      # Yapı düzgün mü? (app klasörü gerçekten kökte mi?)
-      - name: Show tree
-        run: |
-          ls -la
-          ls -la app || true
+      # Gradle cache (indirilen bağımlılıkları hızlandırır)
+      - name: Setup Gradle cache
+        uses: gradle/actions/setup-gradle@v4
 
-      - name: Build Debug APK (daha fazla log)
-        run: ./gradlew assembleDebug --stacktrace --warning-mode all --info
+      # Bellek ve paralellik sınırlı; daemon kapalı → CI daha stabil
+      - name: Build Debug APK
+        run: |
+          echo "org.gradle.daemon=false" >> gradle.properties
+          echo "org.gradle.workers.max=2" >> gradle.properties
+          ./gradlew assembleDebug --stacktrace --warning-mode all --info --no-daemon
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
