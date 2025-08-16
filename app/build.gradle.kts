@@ -38,18 +38,24 @@ android {
     }
 
     // Jetpack Compose
-    buildFeatures {
-        compose = true
-    }
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.14"
-    }
+    buildFeatures { compose = true }
+    composeOptions { kotlinCompilerExtensionVersion = "1.5.14" }
 
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+}
+
+/**
+ * Tüm konfigürasyonlarda problemli SLF4J/Log4j paketlerini dışla.
+ * (Bazı kütüphaneler eski slf4j-jdk14 veya slf4j-nop getiriyor.)
+ */
+configurations.all {
+    exclude(group = "org.slf4j", module = "slf4j-jdk14")
+    exclude(group = "org.slf4j", module = "slf4j-nop")
+    exclude(group = "org.apache.logging.log4j")
 }
 
 dependencies {
@@ -65,9 +71,18 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 
-    // mDNS keşfi
-    implementation("org.jmdns:jmdns:3.5.8")
+    // mDNS keşfi (güvenli tarafta kalmak için SLF4J/Log4j transitiflerini de dışla)
+    implementation("org.jmdns:jmdns:3.5.8") {
+        exclude(group = "org.slf4j")
+        exclude(group = "org.apache.logging.log4j")
+    }
 
-    // Android TV Remote protokolü (JitPack: commit SHA ile sabitlendi)
-    implementation("com.github.kunal52:AndroidTvRemote:3825a2c")
+    // Android TV Remote protokolü (JitPack: commit ile sabitlendi)
+    implementation("com.github.kunal52:AndroidTvRemote:3825a2c") {
+        exclude(group = "org.slf4j")
+        exclude(group = "org.apache.logging.log4j")
+    }
+
+    // Tek bağlayıcı: SLF4J loglarını Android Logcat'e yönlendir
+    implementation("org.slf4j:slf4j-android:1.7.36")
 }
