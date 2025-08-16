@@ -1,9 +1,9 @@
-
 package com.byildiz.mistickremote
 
 import android.content.Context
 import android.net.wifi.WifiManager
 import android.os.Bundle
+import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -26,12 +26,61 @@ import javax.jmdns.JmDNS
 import javax.jmdns.ServiceEvent
 import javax.jmdns.ServiceListener
 import com.github.kunal52.androidtvremote.AndroidRemoteTv
-import com.github.kunal52.androidtvremote.model.Remotemessage
 
 data class TvDevice(val name: String, val host: InetAddress, val port: Int)
 
-class MainActivity : ComponentActivity() {
+/**
+ * Kütüphaneye derleme-zamanı bağlı kalmadan "tuş gönderme".
+ * 1) Remotemessage enumlarını bulup sendCommand(RemoteKeyCode, RemoteDirection) çağırmayı dener.
+ * 2) Olmazsa send*(int[, ...]) benzeri imzaları deneyerek KeyEvent kodu yollar.
+ */
+private fun sendKeySafe(remote: Any, keyName: String, longPress: Boolean = false) {
+    // 1) Resmi imza: Remotemessage.RemoteKeyCode / RemoteDirection
+    try {
+        val keyEnum = Class.forName("com.github.kunal52.androidtvremote.model.Remotemessage\$RemoteKeyCode")
+        val dirEnum = Class.forName("com.github.kunal52.androidtvremote.model.Remotemessage\$RemoteDirection")
+        @Suppress("UNCHECKED_CAST")
+        val keyConst = java.lang.Enum.valueOf(keyEnum as Class<Enum<*>>, keyName)
+        @Suppress("UNCHECKED_CAST")
+        val dirConst = java.lang.Enum.valueOf(dirEnum as Class<Enum<*>>, if (longPress) "LONG" else "SHORT")
+        val m = remote.javaClass.methods.firstOrNull { it.name == "sendCommand" && it.parameterTypes.size == 2 }
+            ?: throw NoSuchMethodException("sendCommand not found")
+        m.invoke(remote, keyConst, dirConst)
+        return
+    } catch (_: Throwable) {
+        // Alternatif imzaları deneyeceğiz
+    }
 
+    // 2) Alternatif: KEYCODE int ile send*(...) aramak
+    try {
+        val code = KeyEvent::class.java.getField(keyName).getInt(null)
+        val candidates = remote.javaClass.methods.filter { it.name.lowercase().contains("send") }
+        for (m in candidates) {
+            try {
+                when (m.parameterTypes.size) {
+                    1 -> m.invoke(remote, code)
+                    2 -> {
+                        val p0 = m.parameterTypes[0]
+                        val p1 = m.parameterTypes[1]
+                        when {
+                            p0 == Int::class.javaPrimitiveType && p1 == Boolean::class.javaPrimitiveType ->
+                                m.invoke(remote, code, longPress)
+                            p0 == Int::class.javaPrimitiveType && (p1 == Int::class.javaPrimitiveType || p1 == Integer::class.java) ->
+                                m.invoke(remote, code, if (longPress) 1 else 0)
+                            else -> continue
+                        }
+                    }
+                    else -> continue
+                }
+                return
+            } catch (_: Throwable) { /* diğerini dene */ }
+        }
+    } catch (_: Throwable) { /* yoksa yapacak bir şey yok */ }
+
+    android.util.Log.w("MiStickRemote", "Key send failed for $keyName (method not found)")
+}
+
+class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -47,6 +96,7 @@ class MainActivity : ComponentActivity() {
 fun RemoteApp() {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+
     var devices by remember { mutableStateOf(listOf<TvDevice>()) }
     var isDiscovering by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf<TvDevice?>(null) }
@@ -55,7 +105,7 @@ fun RemoteApp() {
     var error by remember { mutableStateOf<String?>(null) }
     var pinCode by remember { mutableStateOf("") }
 
-    // Android TV Remote client (library)
+    // Android TV Remote client
     val remote = remember { AndroidRemoteTv() }
 
     fun connectTo(device: TvDevice) {
@@ -63,23 +113,12 @@ fun RemoteApp() {
         selected = device
         scope.launch(Dispatchers.IO) {
             remote.connect(device.host.hostAddress, object : AndroidRemoteTv.AndroidTvListener {
-                override fun onSessionCreated() {
-                    // do nothing
-                }
-                override fun onSecretRequested() {
-                    // ask for 6-digit PIN from user
-                    pinNeeded = true
-                }
-                override fun onPaired() {
-                    // connected to pairing server, now connecting to remote port...
-                }
+                override fun onSessionCreated() { }
+                override fun onSecretRequested() { pinNeeded = true }
+                override fun onPaired() { }
                 override fun onConnectingToRemote() { }
-                override fun onConnected() {
-                    connected = true
-                }
-                override fun onDisconnect() {
-                    connected = false
-                }
+                override fun onConnected() { connected = true }
+                override fun onDisconnect() { connected = false }
                 override fun onError(errorMsg: String) {
                     error = errorMsg
                     connected = false
@@ -88,17 +127,14 @@ fun RemoteApp() {
         }
     }
 
-    fun sendKey(key: Remotemessage.RemoteKeyCode, longPress: Boolean = false) {
+    fun sendKeyName(name: String, longPress: Boolean = false) {
         if (!connected) return
-        val dir = if (longPress) Remotemessage.RemoteDirection.LONG else Remotemessage.RemoteDirection.SHORT
-        scope.launch(Dispatchers.IO) {
-            remote.sendCommand(key, dir)
-        }
+        scope.launch(Dispatchers.IO) { sendKeySafe(remote, name, longPress) }
     }
 
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text("Mi Stick Remote", fontWeight = FontWeight.SemiBold) })
+            CenterAlignedTopAppBar(title = { Text("Mi Stick Remote", fontWeight = FontWeight.SemiBold) })
         }
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize().padding(16.dp)) {
@@ -125,11 +161,17 @@ fun RemoteApp() {
 
             Spacer(Modifier.height(8.dp))
             if (devices.isEmpty()) {
-                Text("Aynı Wi‑Fi'daki Android TV / Mi Stick cihazları burada listelenecek.", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    "Aynı Wi-Fi'daki Android TV / Mi Stick cihazları burada listelenecek.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
             } else {
                 LazyColumn(Modifier.weight(1f)) {
                     items(devices) { d ->
-                        Card(onClick = { connectTo(d) }, modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+                        ElevatedCard(
+                            onClick = { connectTo(d) },
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)
+                        ) {
                             Column(Modifier.padding(14.dp)) {
                                 Text(d.name, style = MaterialTheme.typography.titleMedium)
                                 Text("${d.host.hostAddress}:${d.port}", style = MaterialTheme.typography.bodySmall)
@@ -145,16 +187,16 @@ fun RemoteApp() {
                 Text("Bağlandı: ${selected?.name ?: ""}", style = MaterialTheme.typography.labelLarge)
                 Spacer(Modifier.height(8.dp))
                 RemotePad(
-                    onUp = { sendKey(Remotemessage.RemoteKeyCode.KEYCODE_DPAD_UP) },
-                    onDown = { sendKey(Remotemessage.RemoteKeyCode.KEYCODE_DPAD_DOWN) },
-                    onLeft = { sendKey(Remotemessage.RemoteKeyCode.KEYCODE_DPAD_LEFT) },
-                    onRight = { sendKey(Remotemessage.RemoteKeyCode.KEYCODE_DPAD_RIGHT) },
-                    onCenter = { sendKey(Remotemessage.RemoteKeyCode.KEYCODE_DPAD_CENTER) },
-                    onBack = { sendKey(Remotemessage.RemoteKeyCode.KEYCODE_BACK) },
-                    onHome = { sendKey(Remotemessage.RemoteKeyCode.KEYCODE_HOME) },
-                    onPlayPause = { sendKey(Remotemessage.RemoteKeyCode.KEYCODE_MEDIA_PLAY_PAUSE) },
-                    onVolUp = { sendKey(Remotemessage.RemoteKeyCode.KEYCODE_VOLUME_UP) },
-                    onVolDown = { sendKey(Remotemessage.RemoteKeyCode.KEYCODE_VOLUME_DOWN) }
+                    onUp = { sendKeyName("KEYCODE_DPAD_UP") },
+                    onDown = { sendKeyName("KEYCODE_DPAD_DOWN") },
+                    onLeft = { sendKeyName("KEYCODE_DPAD_LEFT") },
+                    onRight = { sendKeyName("KEYCODE_DPAD_RIGHT") },
+                    onCenter = { sendKeyName("KEYCODE_DPAD_CENTER") },
+                    onBack = { sendKeyName("KEYCODE_BACK") },
+                    onHome = { sendKeyName("KEYCODE_HOME") },
+                    onPlayPause = { sendKeyName("KEYCODE_MEDIA_PLAY_PAUSE") },
+                    onVolUp = { sendKeyName("KEYCODE_VOLUME_UP") },
+                    onVolDown = { sendKeyName("KEYCODE_VOLUME_DOWN") }
                 )
             } else {
                 Text("Bir cihaza bağlanın ve uzaktan kumandayı kullanın.", style = MaterialTheme.typography.bodyMedium)
@@ -207,7 +249,11 @@ fun RemotePad(
             FilledTonalButton(onClick = onUp, modifier = Modifier.size(96.dp)) { Text("▲") }
         }
         Spacer(Modifier.height(8.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             FilledTonalButton(onClick = onLeft, modifier = Modifier.size(96.dp)) { Text("◀") }
             Button(onClick = onCenter, modifier = Modifier.size(96.dp)) { Text("OK", textAlign = TextAlign.Center) }
             FilledTonalButton(onClick = onRight, modifier = Modifier.size(96.dp)) { Text("▶") }
@@ -245,8 +291,8 @@ fun PinDialog(onConfirm: () -> Unit, onDismiss: () -> Unit, onChange: (String) -
 }
 
 /**
- * Discover Android TV devices via mDNS (_androidtvremote._tcp)
- * Requires CHANGE_WIFI_MULTICAST_STATE to acquire a MulticastLock.
+ * mDNS ile Android TV cihazlarını keşfetme.
+ * İzin: CHANGE_WIFI_MULTICAST_STATE (Manifest'te mevcut).
  */
 fun discoverDevices(
     context: Context,
